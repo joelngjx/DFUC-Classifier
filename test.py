@@ -81,7 +81,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = smp.Unet(
-        encoder_name="resnet18",  
+        encoder_name="resnet50",  
         encoder_weights="imagenet",
         in_channels=3,
         classes=1,
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     best_iou = 0
     epochs = 30
 
-    def save(model, epochs = epochs+1, iou=None):
+    def save(model, epochs=epochs+1, iou=None):
         ## Saving the model
         MODEL_PATH = Path("models")
         MODEL_PATH.mkdir(exist_ok=True, parents=True)
