@@ -1,11 +1,8 @@
 import segmentation_models_pytorch as smp
 import torch
 import time
-import torchvision as tv
-import torchvision.transforms as transforms
 import os
 import albumentations as A
-import matplotlib.pyplot as plt
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import Dataset, random_split, DataLoader
 from PIL import Image

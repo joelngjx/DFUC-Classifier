@@ -7,7 +7,6 @@ import torch
 from test import iou_fn, focal_fn, dice_fn
 import numpy as np
 import time
-import matplotlib.pyplot as plt
 
 ## Load model
 model = smp.Unet(
