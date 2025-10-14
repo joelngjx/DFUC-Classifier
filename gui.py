@@ -27,11 +27,13 @@ mask_uploader = st.file_uploader("Upload a mask file of the previous DFU image",
 
 if img_uploader is not None:
     if mask_uploader is not None:
+        ## Upload & transform image and mask
         image = Image.open(img_uploader).convert("RGB")
         mask = Image.open(mask_uploader).convert("L")
         st.image(img_uploader, caption="Image uploaded", use_container_width=True)
         st.image(mask_uploader, caption="Mask uploaded", use_container_width=True)
 
+        # List of transformations
         img_transforms = A.Compose([
                 A.Resize(256, 256),
                 A.Normalize(mean=[0.485, 0.456, 0.406],
@@ -43,8 +45,10 @@ if img_uploader is not None:
             image = np.array(image)
             mask = np.array(mask)
 
-            # converting mask from 0-255 to binary
+            # Converting mask from 0-255 to binary
             mask = (mask > 127).astype(np.float32)
+
+            # Applying transforms -> manually add dimension for batch
             augmented = img_transforms(image = image, mask = mask)
             img_tensor = augmented['image']
             mask_tensor = augmented['mask'].unsqueeze(0).float()
@@ -54,15 +58,18 @@ if img_uploader is not None:
         img_tensor, mask_tensor = preprocess(image, mask)
 
         if st.button("Detect DFU"):
+            # Produce preds -> calc metrics
             start_time = time.time()
             preds = model(img_tensor)    
             loss = 0.5 * dice_fn(preds, mask_tensor) + 0.5 * focal_fn(preds, mask_tensor)
             iou = iou_fn(preds, mask_tensor)
             end_time = time.time() - start_time
 
+            # Save preds as grayscale output to be displayed
+            # NOTE: NP can't be called when pred_mask is on GPU
             pred_mask = torch.sigmoid(preds)
             pred_mask = (pred_mask > 0.5).float()
-            pred_mask_np = pred_mask.squeeze().cpu().numpy()
+            pred_mask_np = pred_mask.squeeze().cpu().numpy() # 2D array
             pred_mask_np = (pred_mask_np * 255).astype(np.uint8)
 
             st.write(f"IOU: {iou:.2f}% | Loss: {loss:.2f} | Time: {end_time:.2f}s")
