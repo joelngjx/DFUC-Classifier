@@ -9,6 +9,8 @@ from PIL import Image
 import numpy as np
 from pathlib import Path
 
+
+# Composing transforms with albumentations for images
 img_transforms = A.Compose([
         A.Resize(256, 256),
         A.HorizontalFlip(p=0.5),
@@ -20,15 +22,20 @@ img_transforms = A.Compose([
     ])
 
 
+# Custom IoU function
 def iou_fn(y_pred, y_true):
+        # Probas -> preds with sigmoid
         y_pred = torch.sigmoid(y_pred)
         y_pred = (y_pred > 0.5).float()
         
+        # Add channel dimension (batchsize, channels, height, width)
+        # 1 channel for grayscale (black-white intensity)
         if y_pred.ndim == 3:
             y_pred = y_pred.unsqueeze(1)
         if y_true.ndim == 3:
              y_true = y_true.unsqueeze(1)
 
+        # Calculating intersection & union
         inter = (y_pred * y_true).sum(dim=(1,2,3))
         union = y_pred.sum(dim=(1,2,3)) + y_true.sum(dim=(1,2,3)) - inter
         iou = (inter + 1e-6) / (union + 1e-6)
@@ -50,6 +57,7 @@ class DFUdataset(Dataset):
             return len(self.images)
 
         def __getitem__(self, idx):
+            # Getting images & masks -> converting to NP arrays
             image_path = os.path.join(self.image_dir, self.images[idx])
             mask_path = os.path.join(self.mask_dir, self.masks[idx])
 
@@ -59,9 +67,10 @@ class DFUdataset(Dataset):
             image = np.array(image)
             mask = np.array(mask)
 
-            # converting mask from 0-255 to binary
+            # Converting mask from 0-255 to binary
             mask = (mask > 127).astype(np.float32)
             
+            # Apply transforms
             augmented = self.img_transforms(image = image, mask = mask)
             image = augmented['image']
             mask = augmented['mask'].unsqueeze(0).float()
@@ -71,12 +80,12 @@ class DFUdataset(Dataset):
 
 if __name__ == "__main__":
 
+    # Optimisation & device-agnostic code
     torch.backends.cudnn.benchmark = True
-
     torch.set_float32_matmul_precision("medium")
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Instantiate model
     model = smp.Unet(
         encoder_name="resnet50",  
         encoder_weights="imagenet",
@@ -86,14 +95,14 @@ if __name__ == "__main__":
     )
 
 
-    ## STUFF TO INITIALISE
+    ## FUNCTIONS, OBJECTS TO INITIALISE
     model = model.to(device)
     dice_fn = smp.losses.DiceLoss(mode='binary')
     focal_fn = smp.losses.FocalLoss('binary')
     optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=1, factor=0.3)
 
-    # Directories addresses
+    # Directories' addresses
     DATA_DIR = "dataset"
     dataset = DFUdataset(
         image_dir=os.path.join(DATA_DIR, "images"), 
@@ -122,8 +131,8 @@ if __name__ == "__main__":
     best_iou = 0
     epochs = 30
 
-    def save(model, epochs=epochs+1, iou=None):
-        ## Saving the model
+    ## Function for saving the model
+    def save(model):
         MODEL_PATH = Path("models")
         MODEL_PATH.mkdir(exist_ok=True, parents=True)
         MODEL_SAVE_PATH = MODEL_PATH / "DFUCmodelV0.pt"
@@ -135,6 +144,7 @@ if __name__ == "__main__":
         running_loss, running_iou, correct, total = 0.0, 0.0, 0, 0
         start_time = time.time()
 
+        ## Training loop
         for X_batch, y_batch in train_loader:
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             optimizer.zero_grad()
@@ -150,32 +160,38 @@ if __name__ == "__main__":
             running_loss += loss.item()
             running_iou += iou_fn(preds, y_batch)
 
+
+        ## Testing loop
         model.eval()
         running_test_loss, running_test_iou = 0.0, 0.0
         with torch.inference_mode():
             for X_batch, y_batch in val_loader:
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 test_preds = model(X_batch)
-                test_loss = 0.5 * focal_fn(test_preds, y_batch) + 0.5 * dice_fn(test_preds, y_batch)
 
+                # Test metrics
+                test_loss = 0.5 * focal_fn(test_preds, y_batch) + 0.5 * dice_fn(test_preds, y_batch)
                 running_test_loss += test_loss.item()
                 running_test_iou += iou_fn(test_preds, y_batch)
 
         torch.cuda.empty_cache()
 
-        # timing epochs
+        # Timing epochs
         end_time = time.time()
         epoch_time = end_time - start_time
 
+        # Average metrics
         avg_train_loss = running_loss / len(train_loader)
         avg_train_iou = running_iou / len(train_loader)
         avg_val_loss = running_test_loss / len(val_loader)
         avg_val_iou = running_test_iou / len(val_loader)
 
+        ## Using optimal IoU to save the model
         if avg_val_iou > best_iou:
             best_iou = avg_val_iou
             save(model)
        
+        # Print metrics
         print(f"Epoch [{epoch+1}/{epochs}] | "
             f"Loss: {(running_loss/len(train_loader)):.2f} | "
             f"Accuracy: {(running_iou/len(train_loader)):.2f}% | "
